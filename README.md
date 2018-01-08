@@ -1,2 +1,2 @@
 # dstats
-Push docker stats thru web socker. (asyncio, aiohttp, aiodocker)
+Push docker stats thru web sockets. (asyncio, aiohttp, aiodocker)
