@@ -28,11 +28,39 @@ class StatsCollector():
     def start(self):
         web.run_app(self.app, host=self._host, port=self._port)
 
+    def _calculate_cpu_percent(self, stats):
+        cpu1 = stats['precpu_stats']['cpu_usage']['total_usage']
+        system1 = stats['precpu_stats']['system_cpu_usage']
+        cpu2 = stats['cpu_stats']['cpu_usage']['total_usage']
+        system2 = stats['cpu_stats']['system_cpu_usage']
+        # Calculate deltas
+        cpu_delta = float(cpu2 - cpu1)
+        system_delta = float(system2 - system1)
+        # Calculate percent
+        if (system_delta > 0.0 and cpu_delta > 0.0):
+            cpu_percent = (cpu_delta / system_delta) * \
+                len(stats['cpu_stats']['cpu_usage']['percpu_usage']) * 100.0
+        else:
+            cpu_percent = 0.0
+
+        return cpu_percent
+
+    def _calculate_memory_percent(self, stats):
+        memory_percent = (float(stats['memory_stats']['usage']) /
+                          float(stats['memory_stats']['limit'])) * 100
+        return memory_percent, stats['memory_stats']['usage']
+
     async def _get_stats(self, container):
 
         print('start')
 
         stats = await container.stats(stream=False)
+
+        cpu_usage_perc = self._calculate_cpu_percent(stats)
+        memory_percent, memory_usage = self._calculate_memory_percent(stats)
+
+        stats['cpu_stats']['cpu_usage_perc'] = cpu_usage_perc
+        stats['memory_stats']['perc'] = memory_percent
 
         print('end')
 
