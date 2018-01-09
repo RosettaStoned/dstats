@@ -3,7 +3,6 @@ import json
 import logging
 import asyncio
 import aiodocker
-import aiofiles
 from aiohttp import web
 
 logging.basicConfig(
@@ -30,8 +29,8 @@ class StatsCollector():
 
         self.app = web.Application(loop=self.loop)
         self.app.router.add_get('/', self.index_handler)
-        self.app.router.add_get('/docker-stats', self.websocket_handler)
         self.app.router.add_static('/static/', path='static/')
+        self.app.router.add_get('/docker-stats', self.websocket_handler)
         self.app.on_startup.append(self.start_background_tasks)
         self.app.on_cleanup.append(self.cleanup_background_tasks)
         self.app.on_shutdown.append(self.on_shutdown)
@@ -205,15 +204,4 @@ class StatsCollector():
 
     async def index_handler(self, request):
 
-        resp = web.StreamResponse(status=200,
-                                  reason='OK',
-                                  headers={'Content-Type': 'text/html'})
-
-        await resp.prepare(request)
-
-        async with aiofiles.open('templates/index.html', mode='r') as f:
-            async for line in f:
-                resp.write(line.encode())
-                await resp.drain()
-
-        return resp
+        return web.FileResponse('templates/index.html')
