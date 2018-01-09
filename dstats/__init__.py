@@ -1,8 +1,17 @@
+import sys
 import json
+import logging
 import asyncio
 import aiodocker
 import aiofiles
 from aiohttp import web
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(name)s: %(message)s',
+    stream=sys.stderr,
+)
+log = logging.getLogger(__name__)
 
 
 class StatsCollector():
@@ -84,7 +93,7 @@ class StatsCollector():
 
     async def _get_stats(self, container):
 
-        print('start')
+        log.info('start')
 
         stats = await container.stats(stream=False)
 
@@ -103,7 +112,7 @@ class StatsCollector():
             'transceived_bytes': transceived_bytes
         }
 
-        print('end')
+        log.info('end')
 
         return stats
 
@@ -116,7 +125,7 @@ class StatsCollector():
             self._web_sockets.discard(ws)
 
     async def _send_stats(self, stats, ws):
-        print('Send stats...')
+        log.info('Send stats...')
 
         stats_json = json.dumps(stats)
 
@@ -158,36 +167,36 @@ class StatsCollector():
         self.collect_task = asyncio.ensure_future(self.collect())
 
     async def cleanup_background_tasks(self, app):
-        print('cleanup background tasks...')
+        log.info('cleanup background tasks...')
         self.collect_task.cancel()
         await self.collect_task
 
     async def on_shutdown(self, app):
-        print('Shutdown...')
+        log.info('Shutdown...')
         with self._web_sockets_lock:
             for ws in self._web_sockets:
                 await ws.close(code=999, message='Server shutdown')
 
     async def websocket_handler(self, request):
 
-        print('WebSocket is ready.')
+        log.info('WebSocket is ready.')
         ws = web.WebSocketResponse()
         await ws.prepare(request)
-        print('WebSocket is connected')
+        log.info('WebSocket is connected')
         await self._add_web_socket(ws)
 
         while True:
 
             msg = await ws.receive()
             if msg.tp == web.MsgType.text:
-                print("Got message %s" % msg.data)
+                log.info("Got message %s" % msg.data)
                 ws.send_str("Pressed key code: {}".format(msg.data))
             elif msg.tp == web.MsgType.close or \
                     msg.tp == web.MsgType.error:
                 break
 
         await self._discard_web_socket(ws)
-        print('WebSocket is closed.')
+        log.info('WebSocket is closed.')
 
         return ws
 
