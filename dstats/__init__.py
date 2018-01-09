@@ -95,6 +95,7 @@ class StatsCollector():
 
         log.info('start')
 
+        container_data = await container.show()
         stats = await container.stats(stream=False)
 
         cpu_usage_perc = self._calculate_cpu_percent(stats)
@@ -103,6 +104,7 @@ class StatsCollector():
         received_bytes, transceived_bytes = \
             self._calculate_network_bytes(stats)
 
+        stats['container'] = container_data
         stats['cpu_stats']['cpu_usage_perc'] = cpu_usage_perc
         stats['memory_stats']['perc'] = memory_percent
         stats['blkio_stats']['read_bytes'] = read_bytes
