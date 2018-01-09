@@ -31,6 +31,7 @@ class StatsCollector():
         self.app = web.Application(loop=self.loop)
         self.app.router.add_get('/', self.index_handler)
         self.app.router.add_get('/docker-stats', self.websocket_handler)
+        self.app.router.add_static('/static/', path='static/')
         self.app.on_startup.append(self.start_background_tasks)
         self.app.on_cleanup.append(self.cleanup_background_tasks)
         self.app.on_shutdown.append(self.on_shutdown)
