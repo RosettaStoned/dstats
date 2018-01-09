@@ -93,6 +93,8 @@ class StatsCollector():
 
     async def _get_stats(self, container):
 
+        log.info('start')
+
         container_data = await container.show()
         stats = await container.stats(stream=False)
 
