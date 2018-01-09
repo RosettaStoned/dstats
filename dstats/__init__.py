@@ -13,6 +13,7 @@ class StatsCollector():
         self._port = port
         self._sleep_delay = 5
         self._web_sockets = set()
+        self._web_sockets_lock = asyncio.Lock()
 
         self.loop = asyncio.get_event_loop()
 
@@ -106,7 +107,16 @@ class StatsCollector():
 
         return stats
 
+    async def _add_web_socket(self, ws):
+        with await self._web_sockets_lock:
+            self._web_sockets.add(ws)
+
+    async def _discard_web_socket(self, ws):
+        with await self._web_sockets_lock:
+            self._web_sockets.discard(ws)
+
     async def _send_stats(self, stats, ws):
+        print('Send stats...')
 
         stats_json = json.dumps(stats)
 
@@ -153,8 +163,10 @@ class StatsCollector():
         await self.collect_task
 
     async def on_shutdown(self, app):
-        for ws in self._web_sockets:
-            await ws.close(code=999, message='Server shutdown')
+        print('Shutdown...')
+        with self._web_sockets_lock:
+            for ws in self._web_sockets:
+                await ws.close(code=999, message='Server shutdown')
 
     async def websocket_handler(self, request):
 
@@ -162,7 +174,7 @@ class StatsCollector():
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         print('WebSocket is connected')
-        self._web_sockets.add(ws)
+        await self._add_web_socket(ws)
 
         while True:
 
@@ -174,7 +186,7 @@ class StatsCollector():
                     msg.tp == web.MsgType.error:
                 break
 
-        self._web_sockets.discard(ws)
+        await self._discard_web_socket(ws)
         print('WebSocket is closed.')
 
         return ws
