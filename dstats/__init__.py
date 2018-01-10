@@ -177,6 +177,9 @@ class StatsCollector():
                     else:
                         log.info('Send to multiple web sockets...')
                         with await self._web_sockets_lock:
+                            log.info('Lock for sending multiple web sockets \
+                                     aquired.')
+                            print(self._web_sockets)
                             for ws in self._web_sockets:
                                 tasks.append(self._send_stats(stats, ws))
 
@@ -185,6 +188,7 @@ class StatsCollector():
                     continue
 
                 done, not_done = await asyncio.wait(tasks)
+                log.info('Stats are sended.')
                 await asyncio.sleep(self._sleep_delay)
 
             except asyncio.CancelledError as e:
@@ -225,6 +229,7 @@ class StatsCollector():
         await ws.prepare(request)
         log.info('WebSocket is connected')
         log.info('WebSocket is added to web sockets.')
+        await self._add_web_socket(ws)
 
         while True:
 
