@@ -29,8 +29,15 @@ class StatsCollector():
 
         self.app = web.Application(loop=self.loop)
         self.app.router.add_get('/', self.index_handler)
+
+        self.app.router.add_get('/containers/{container_id}',
+                                self.container_handler)
+        self.app.router.add_get('/containers/{container_id}/ws',
+                                self.container_ws_handler)
+
+        self.app.router.add_get('/docker-stats/ws', self.ws_handler)
         self.app.router.add_static('/static/', path='static/')
-        self.app.router.add_get('/docker-stats', self.websocket_handler)
+
         self.app.on_startup.append(self.start_background_tasks)
         self.app.on_cleanup.append(self.cleanup_background_tasks)
         self.app.on_shutdown.append(self.on_shutdown)
@@ -93,7 +100,10 @@ class StatsCollector():
 
     async def _get_stats(self, container):
 
-        log.info('start')
+        log.info('Start collecting stats for container \
+                 "{container_id}".'.format(
+                     container_id=container._id
+                 ))
 
         container_data = await container.show()
         stats = await container.stats(stream=False)
@@ -133,12 +143,18 @@ class StatsCollector():
 
         return await ws.send_str(stats_json)
 
-    async def collect(self):
+    async def collect(self, container_id=None, ws=None):
 
         while True:
 
             try:
-                containers = await self.docker.containers.list()
+
+                if container_id:
+                    containers = [await
+                                  self.docker.containers.get(container_id)]
+                else:
+                    containers = await self.docker.containers.list()
+
                 if not containers:
                     await asyncio.sleep(self._sleep_delay)
                     continue
@@ -152,8 +168,14 @@ class StatsCollector():
 
                     stats = t.result()
 
-                    for ws in self._web_sockets:
+                    if ws:
+                        log.info('Send to single web socket...')
                         tasks.append(self._send_stats(stats, ws))
+                    else:
+                        log.info('Send to multiple web sockets...')
+                        with await self._web_sockets_lock:
+                            for ws in self._web_sockets:
+                                tasks.append(self._send_stats(stats, ws))
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
@@ -164,22 +186,34 @@ class StatsCollector():
 
             except asyncio.CancelledError as e:
                 log.error(e)
+                break
 
     async def start_background_tasks(self, app):
         self.collect_task = asyncio.ensure_future(self.collect())
 
     async def cleanup_background_tasks(self, app):
-        log.info('cleanup background tasks...')
+
         self.collect_task.cancel()
         await self.collect_task
 
+        log.info('cleanup background tasks...')
+        tasks = [task for task in asyncio.Task.all_tasks() if task is not
+                 asyncio.tasks.Task.current_task()]
+        list(map(lambda task: task.cancel(), tasks))
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        log.info('finished awaiting cancelled tasks, results: {0}'.format(
+            results
+        ))
+
     async def on_shutdown(self, app):
-        log.info('Shutdown...')
+
         with await self._web_sockets_lock:
+            log.info('Lock on web sockets is acquired.')
             for ws in self._web_sockets:
+                log.info('Closing web socket...')
                 await ws.close(code=999, message='Server shutdown')
 
-    async def websocket_handler(self, request):
+    async def ws_handler(self, request):
 
         log.info('WebSocket is ready.')
         ws = web.WebSocketResponse()
@@ -205,3 +239,43 @@ class StatsCollector():
     async def index_handler(self, request):
 
         return web.FileResponse('templates/index.html')
+
+    async def container_ws_handler(self, request):
+
+        container_id = request.match_info['container_id']
+
+        log.info('WebSocket is ready.')
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        log.info('WebSocket is connected')
+        await self._add_web_socket(ws)
+
+        collect_task = asyncio.ensure_future(self.collect(
+                container_id=container_id,
+                ws=ws
+        ))
+
+        while True:
+
+            msg = await ws.receive()
+            if msg.tp == web.MsgType.text:
+                log.info("Got message %s" % msg.data)
+                ws.send_str("Pressed key code: {}".format(msg.data))
+            elif msg.tp == web.MsgType.close or \
+                    msg.tp == web.MsgType.error:
+                break
+
+        collect_task.cancel()
+        await self._discard_web_socket(ws)
+        log.info('WebSocket is closed.')
+
+        return ws
+
+    async def container_handler(self, request):
+
+        container_id = request.match_info['container_id']
+        log.info('container_handler "{container_id}".'.format(
+            container_id=container_id
+        ))
+
+        return web.FileResponse('templates/container.html')

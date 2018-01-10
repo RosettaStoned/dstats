@@ -14,7 +14,10 @@
       }
       function connect() {
         disconnect();
-        var wsUri = (window.location.protocol=='https:'&&'wss://'||'ws://')+window.location.host+'/docker-stats/ws';
+
+        var href = location.href
+        var containerId = href.substr(href.lastIndexOf('/') + 1)
+        var wsUri = (window.location.protocol=='https:'&&'wss://'||'ws://')+window.location.host+'/containers/'+containerId+'/ws';
         conn = new WebSocket(wsUri);
         log('Connecting...');
         conn.onopen = function() {
