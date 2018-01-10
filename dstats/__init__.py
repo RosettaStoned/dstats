@@ -3,7 +3,9 @@ import json
 import logging
 import asyncio
 import aiodocker
-from aiohttp import web
+from aiohttp import web, WSMsgType
+from aiohttp.http import WSCloseCode
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -20,6 +22,7 @@ class StatsCollector():
         self._host = host
         self._port = port
         self._sleep_delay = 5
+        self._web_socket_timeout = 0.1
         self._web_sockets = set()
         self._web_sockets_lock = asyncio.Lock()
 
@@ -208,27 +211,29 @@ class StatsCollector():
     async def on_shutdown(self, app):
 
         with await self._web_sockets_lock:
-            log.info('Lock on web sockets is acquired.')
-            for ws in self._web_sockets:
-                log.info('Closing web socket...')
-                await ws.close(code=999, message='Server shutdown')
+
+            tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
+                              shutdown') for ws in self._web_sockets]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            log.info('finished awaiting close of web sockets, \
+                     results: {0}'.format(results))
 
     async def ws_handler(self, request):
 
         log.info('WebSocket is ready.')
-        ws = web.WebSocketResponse()
+        ws = web.WebSocketResponse(timeout=self._web_socket_timeout)
         await ws.prepare(request)
         log.info('WebSocket is connected')
-        await self._add_web_socket(ws)
+        log.info('WebSocket is added to web sockets.')
 
         while True:
 
+            log.info('Waiting...')
             msg = await ws.receive()
-            if msg.tp == web.MsgType.text:
-                log.info("Got message %s" % msg.data)
-                ws.send_str("Pressed key code: {}".format(msg.data))
-            elif msg.tp == web.MsgType.close or \
-                    msg.tp == web.MsgType.error:
+            log.info(msg.type)
+            if msg.type == WSMsgType.CLOSING or \
+                    msg.type == WSMsgType.CLOSED or \
+                    msg.tp == WSMsgType.ERROR:
                 break
 
         await self._discard_web_socket(ws)
@@ -250,22 +255,21 @@ class StatsCollector():
         log.info('WebSocket is connected')
         await self._add_web_socket(ws)
 
-        collect_task = asyncio.ensure_future(self.collect(
+        asyncio.ensure_future(self.collect(
                 container_id=container_id,
                 ws=ws
         ))
 
         while True:
 
+            log.info('Waiting...')
             msg = await ws.receive()
-            if msg.tp == web.MsgType.text:
-                log.info("Got message %s" % msg.data)
-                ws.send_str("Pressed key code: {}".format(msg.data))
-            elif msg.tp == web.MsgType.close or \
-                    msg.tp == web.MsgType.error:
+            log.info(msg.type)
+            if msg.type == WSMsgType.CLOSING or \
+                    msg.type == WSMsgType.CLOSED or \
+                    msg.tp == WSMsgType.ERROR:
                 break
 
-        collect_task.cancel()
         await self._discard_web_socket(ws)
         log.info('WebSocket is closed.')
 
