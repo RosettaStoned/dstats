@@ -24,7 +24,6 @@ class StatsCollector():
         self._sleep_delay = 5
         self._web_socket_timeout = 0.1
         self._web_sockets = set()
-        self._web_sockets_lock = asyncio.Lock()
 
         self.loop = asyncio.get_event_loop()
 
@@ -109,6 +108,9 @@ class StatsCollector():
                  ))
 
         container_data = await container.show()
+        if not container_data['State']['Running']:
+            return
+
         stats = await container.stats(stream=False)
 
         cpu_usage_perc = self._calculate_cpu_percent(stats)
@@ -130,14 +132,6 @@ class StatsCollector():
         log.info('end')
 
         return stats
-
-    async def _add_web_socket(self, ws):
-        with await self._web_sockets_lock:
-            self._web_sockets.add(ws)
-
-    async def _discard_web_socket(self, ws):
-        with await self._web_sockets_lock:
-            self._web_sockets.discard(ws)
 
     async def _send_stats(self, stats, ws):
         log.info('Send stats...')
@@ -170,18 +164,14 @@ class StatsCollector():
                 for t in done:
 
                     stats = t.result()
+                    if not stats:
+                        continue
 
                     if ws:
-                        log.info('Send to single web socket...')
                         tasks.append(self._send_stats(stats, ws))
                     else:
-                        log.info('Send to multiple web sockets...')
-                        with await self._web_sockets_lock:
-                            log.info('Lock for sending multiple web sockets \
-                                     aquired.')
-                            print(self._web_sockets)
-                            for ws in self._web_sockets:
-                                tasks.append(self._send_stats(stats, ws))
+                        for ws in self._web_sockets:
+                            tasks.append(self._send_stats(stats, ws))
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
@@ -214,13 +204,11 @@ class StatsCollector():
 
     async def on_shutdown(self, app):
 
-        with await self._web_sockets_lock:
-
-            tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
-                              shutdown') for ws in self._web_sockets]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            log.info('finished awaiting close of web sockets, \
-                     results: {0}'.format(results))
+        tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
+                            shutdown') for ws in self._web_sockets]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        log.info('finished awaiting close of web sockets, \
+                    results: {0}'.format(results))
 
     async def ws_handler(self, request):
 
@@ -229,7 +217,7 @@ class StatsCollector():
         await ws.prepare(request)
         log.info('WebSocket is connected')
         log.info('WebSocket is added to web sockets.')
-        await self._add_web_socket(ws)
+        self._web_sockets.add(ws)
 
         while True:
 
@@ -241,7 +229,7 @@ class StatsCollector():
                     msg.tp == WSMsgType.ERROR:
                 break
 
-        await self._discard_web_socket(ws)
+        self._web_sockets.discard(ws)
         log.info('WebSocket is closed.')
 
         return ws
@@ -258,7 +246,7 @@ class StatsCollector():
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         log.info('WebSocket is connected')
-        await self._add_web_socket(ws)
+        self._web_sockets.add(ws)
 
         asyncio.ensure_future(self.collect(
                 container_id=container_id,
@@ -275,7 +263,7 @@ class StatsCollector():
                     msg.tp == WSMsgType.ERROR:
                 break
 
-        await self._discard_web_socket(ws)
+        self._web_sockets.discard(ws)
         log.info('WebSocket is closed.')
 
         return ws
