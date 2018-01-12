@@ -1,6 +1,7 @@
 import sys
 import json
 import logging
+import itertools
 import asyncio
 import aiodocker
 from aiohttp import web, WSMsgType
@@ -160,18 +161,13 @@ class StatsCollector():
 
                 done, not_done = await asyncio.wait(tasks)
 
-                tasks = []
-                for t in done:
-
-                    stats = t.result()
-                    if not stats:
-                        continue
-
-                    if ws:
-                        tasks.append(self._send_stats(stats, ws))
-                    else:
-                        for ws in self._web_sockets:
-                            tasks.append(self._send_stats(stats, ws))
+                if ws:
+                    tasks = [self._send_stats(t.result(), ws) for t in done if
+                             t.result()]
+                else:
+                    tasks = [self._send_stats(t.result(), ws) for t, ws in
+                             itertools.product(done, self._web_sockets) if
+                             t.result()]
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
