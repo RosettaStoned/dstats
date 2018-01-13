@@ -161,13 +161,14 @@ class StatsCollector():
 
                 done, not_done = await asyncio.wait(tasks)
 
+                self.containers_stats = sorted([t.result() for t in done if t.result()],
+                        key=lambda stats: stats['container']['Id']) 
+
                 if ws:
-                    tasks = [self._send_stats(t.result(), ws) for t in done if
-                             t.result()]
+                    tasks = [self._send_stats(stats, ws) for stats in self.containers_stats]
                 else:
-                    tasks = [self._send_stats(t.result(), ws) for t, ws in
-                             itertools.product(done, self._web_sockets) if
-                             t.result()]
+                    tasks = [self._send_stats(self.containers_stats, ws) for ws in
+                            self._web_sockets]
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
@@ -242,9 +243,8 @@ class StatsCollector():
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         log.info('WebSocket is connected')
-        self._web_sockets.add(ws)
 
-        asyncio.ensure_future(self.collect(
+        collect_task = asyncio.ensure_future(self.collect(
                 container_id=container_id,
                 ws=ws
         ))
@@ -257,9 +257,10 @@ class StatsCollector():
             if msg.type == WSMsgType.CLOSING or \
                     msg.type == WSMsgType.CLOSED or \
                     msg.tp == WSMsgType.ERROR:
+                collect_task.cancel()
+                await collect_task
                 break
 
-        self._web_sockets.discard(ws)
         log.info('WebSocket is closed.')
 
         return ws
