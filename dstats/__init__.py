@@ -25,6 +25,7 @@ class StatsCollector():
         self._sleep_delay = 5
         self._web_socket_timeout = 0.1
         self._web_sockets = set()
+        self._container_web_sockets = set()
 
         self.loop = asyncio.get_event_loop()
 
@@ -162,7 +163,7 @@ class StatsCollector():
                 done, not_done = await asyncio.wait(tasks)
 
                 self.containers_stats = sorted([t.result() for t in done if t.result()],
-                        key=lambda stats: stats['container']['Id']) 
+                        key=lambda stats: stats['container']['Id'])
 
                 if ws:
                     tasks = [self._send_stats(stats, ws) for stats in self.containers_stats]
@@ -187,9 +188,6 @@ class StatsCollector():
 
     async def cleanup_background_tasks(self, app):
 
-        self.collect_task.cancel()
-        await self.collect_task
-
         log.info('cleanup background tasks...')
         tasks = [task for task in asyncio.Task.all_tasks() if task is not
                  asyncio.tasks.Task.current_task()]
@@ -201,8 +199,10 @@ class StatsCollector():
 
     async def on_shutdown(self, app):
 
+        web_sockets = self._web_sockets | self._container_web_sockets
+
         tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
-                            shutdown') for ws in self._web_sockets]
+                shutdown') for ws in web_sockets]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         log.info('finished awaiting close of web sockets, \
                     results: {0}'.format(results))
@@ -243,6 +243,7 @@ class StatsCollector():
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         log.info('WebSocket is connected')
+        self._container_web_sockets.add(ws)
 
         collect_task = asyncio.ensure_future(self.collect(
                 container_id=container_id,
@@ -257,10 +258,13 @@ class StatsCollector():
             if msg.type == WSMsgType.CLOSING or \
                     msg.type == WSMsgType.CLOSED or \
                     msg.tp == WSMsgType.ERROR:
+
                 collect_task.cancel()
                 await collect_task
+
                 break
 
+        self._container_web_sockets.discard(ws)
         log.info('WebSocket is closed.')
 
         return ws
