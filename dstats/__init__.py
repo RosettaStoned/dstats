@@ -49,6 +49,16 @@ class StatsCollector():
     def start(self):
         web.run_app(self.app, host=self._host, port=self._port)
 
+
+    def _sizeof_fmt(self, num, suffix='B'):
+        assert isinstance(num, int)
+
+        for unit in ['','Ki','Mi','Gi','Ti','Pi','Ei','Zi']:
+            if abs(num) < 1024.0:
+                return "%3.1f%s%s" % (num, unit, suffix)
+            num /= 1024.0
+        return "%.1f%s%s" % (num, 'Yi', suffix)
+
     def _graceful_chain_get(self, d, *args, default=None):
         t = d
         for a in args:
@@ -67,7 +77,7 @@ class StatsCollector():
             float(stats["precpu_stats"]["system_cpu_usage"])
         if system_delta > 0.0:
             cpu_percent = cpu_delta / system_delta * 100.0 * cpu_count
-        return cpu_percent
+            return cpu_percent
 
     def _calculate_memory_percent(self, stats):
         memory_percent = (float(stats['memory_stats']['usage']) /
@@ -89,7 +99,7 @@ class StatsCollector():
                 r += s["value"]
             elif s["op"] == "Write":
                 w += s["value"]
-        return r, w
+                return r, w
 
     def _calculate_network_bytes(self, stats):
         networks = self._graceful_chain_get(stats, "networks")
@@ -100,7 +110,7 @@ class StatsCollector():
         for if_name, data in networks.items():
             r += data["rx_bytes"]
             t += data["tx_bytes"]
-        return r, t
+            return r, t
 
     async def _get_stats(self, container):
 
@@ -123,12 +133,22 @@ class StatsCollector():
 
         stats['container'] = container_data
         stats['cpu_stats']['cpu_usage_perc'] = cpu_usage_perc
+        stats['memory_stats']['usage_hr'] = \
+            self._sizeof_fmt(stats['memory_stats']['usage'])
+        stats['memory_stats']['limit_hr'] = \
+            self._sizeof_fmt(stats['memory_stats']['limit'])
         stats['memory_stats']['perc'] = memory_percent
         stats['blkio_stats']['read_bytes'] = read_bytes
+        stats['blkio_stats']['read_bytes_hr'] = \
+            self._sizeof_fmt(read_bytes)
         stats['blkio_stats']['wrote_bytes'] = wrote_bytes
+        stats['blkio_stats']['wrote_bytes_hr'] = \
+            self._sizeof_fmt(wrote_bytes)
         stats['network_stats'] = {
             'received_bytes': received_bytes,
-            'transceived_bytes': transceived_bytes
+            'received_bytes_hr': self._sizeof_fmt(received_bytes),
+            'transceived_bytes': transceived_bytes,
+            'transceived_bytes_hr': self._sizeof_fmt(transceived_bytes)
         }
 
         log.info('end')
@@ -163,13 +183,13 @@ class StatsCollector():
                 done, not_done = await asyncio.wait(tasks)
 
                 self.containers_stats = sorted([t.result() for t in done if t.result()],
-                        key=lambda stats: stats['container']['Id'])
+                                               key=lambda stats: stats['container']['Id'])
 
                 if ws:
                     tasks = [self._send_stats(stats, ws) for stats in self.containers_stats]
                 else:
                     tasks = [self._send_stats(self.containers_stats, ws) for ws in
-                            self._web_sockets]
+                             self._web_sockets]
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
@@ -202,10 +222,10 @@ class StatsCollector():
         web_sockets = self._web_sockets | self._container_web_sockets
 
         tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
-                shutdown') for ws in web_sockets]
+                          shutdown') for ws in web_sockets]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         log.info('finished awaiting close of web sockets, \
-                    results: {0}'.format(results))
+                 results: {0}'.format(results))
 
     async def ws_handler(self, request):
 
@@ -246,8 +266,8 @@ class StatsCollector():
         self._container_web_sockets.add(ws)
 
         collect_task = asyncio.ensure_future(self.collect(
-                container_id=container_id,
-                ws=ws
+            container_id=container_id,
+            ws=ws
         ))
 
         while True:
