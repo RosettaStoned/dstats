@@ -107,7 +107,14 @@ $(document).ready(function() {
       }
 
       var row = selection[0].row;
-      alert('You selected ' + data.getValue(row, 0));
+
+      containerId = data.getValue(row, 0);
+
+      location.href = [
+        '/containers/',
+        containerId
+      ].join('');
+
     });
   }
 
