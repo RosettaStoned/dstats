@@ -11,7 +11,8 @@ $(document).ready(function() {
     wsProtocol,
     host,
     '/containers/',
-    containerId
+    containerId, 
+    '/ws'
   ].join('')
 
   conn = new WebSocket(wsUri);
