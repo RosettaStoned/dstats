@@ -22,7 +22,7 @@ class StatsCollector():
 
         self._host = host
         self._port = port
-        self._sleep_delay = 5
+        self._sleep_delay = 1
         self._web_socket_timeout = 0.1
         self._web_sockets = set()
         self._container_web_sockets = set()
@@ -125,33 +125,37 @@ class StatsCollector():
 
         stats = await container.stats(stream=False)
 
-        cpu_usage_perc = self._calculate_cpu_percent(stats)
-        memory_percent, memory_usage = self._calculate_memory_percent(stats)
-        read_bytes, wrote_bytes = self._calculate_blkio_bytes(stats)
-        received_bytes, transceived_bytes = \
-            self._calculate_network_bytes(stats)
+        try:
+            cpu_usage_perc = self._calculate_cpu_percent(stats)
+            memory_percent, memory_usage = self._calculate_memory_percent(stats)
+            read_bytes, wrote_bytes = self._calculate_blkio_bytes(stats)
+            received_bytes, transceived_bytes = \
+                self._calculate_network_bytes(stats)
 
-        stats['container'] = container_data
-        stats['cpu_stats']['cpu_usage_perc'] = cpu_usage_perc
-        stats['memory_stats']['usage_hr'] = \
-            self._sizeof_fmt(stats['memory_stats']['usage'])
-        stats['memory_stats']['limit_hr'] = \
-            self._sizeof_fmt(stats['memory_stats']['limit'])
-        stats['memory_stats']['perc'] = memory_percent
-        stats['blkio_stats']['read_bytes'] = read_bytes
-        stats['blkio_stats']['read_bytes_hr'] = \
-            self._sizeof_fmt(read_bytes)
-        stats['blkio_stats']['wrote_bytes'] = wrote_bytes
-        stats['blkio_stats']['wrote_bytes_hr'] = \
-            self._sizeof_fmt(wrote_bytes)
-        stats['network_stats'] = {
-            'received_bytes': received_bytes,
-            'received_bytes_hr': self._sizeof_fmt(received_bytes),
-            'transceived_bytes': transceived_bytes,
-            'transceived_bytes_hr': self._sizeof_fmt(transceived_bytes)
-        }
+            stats['container'] = container_data
+            stats['cpu_stats']['cpu_usage_perc'] = cpu_usage_perc
+            stats['memory_stats']['usage_hr'] = \
+                self._sizeof_fmt(stats['memory_stats']['usage'])
+            stats['memory_stats']['limit_hr'] = \
+                self._sizeof_fmt(stats['memory_stats']['limit'])
+            stats['memory_stats']['perc'] = memory_percent
+            stats['blkio_stats']['read_bytes'] = read_bytes
+            stats['blkio_stats']['read_bytes_hr'] = \
+                self._sizeof_fmt(read_bytes)
+            stats['blkio_stats']['wrote_bytes'] = wrote_bytes
+            stats['blkio_stats']['wrote_bytes_hr'] = \
+                self._sizeof_fmt(wrote_bytes)
+            stats['network_stats'] = {
+                'received_bytes': received_bytes,
+                'received_bytes_hr': self._sizeof_fmt(received_bytes),
+                'transceived_bytes': transceived_bytes,
+                'transceived_bytes_hr': self._sizeof_fmt(transceived_bytes)
+            }
 
-        log.info('end')
+            log.info('end')
+        except KeyError as e:
+            log.error(e)
+            return
 
         return stats
 
@@ -185,6 +189,9 @@ class StatsCollector():
                 self.containers_stats = sorted([t.result() for t in done if t.result()],
                                                key=lambda stats: stats['container']['Id'])
 
+                if not self.containers_stats:
+                    break
+
                 if ws:
                     tasks = [self._send_stats(stats, ws) for stats in self.containers_stats]
                 else:
@@ -199,7 +206,7 @@ class StatsCollector():
                 log.info('Stats are sended.')
                 await asyncio.sleep(self._sleep_delay)
 
-            except asyncio.CancelledError as e:
+            except (asyncio.CancelledError, aiodocker.exceptions.DockerError) as e:
                 log.error(e)
                 break
 
