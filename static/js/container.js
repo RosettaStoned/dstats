@@ -32,6 +32,7 @@ $(document).ready(function() {
     console.log(stats)
     statsSamples.push(stats);
     drawMemoryChart(statsSamples);
+    drawCpuUsageCharts(statsSamples);
   };
 
   conn.onclose = function(e) {
@@ -95,6 +96,7 @@ $(document).ready(function() {
     var options = {
       title: 'Memory Usage',
       curveType: 'function',
+      focusTarget: 'category',
       hAxis: {
         title: 'Time'
       },
@@ -116,6 +118,93 @@ $(document).ready(function() {
     var chart = new google.visualization.LineChart(chart_elem);
 
     chart.draw(data, options);
+
+  }
+  
+  function getInterval(current, previous) {
+    var cur = new Date(current);
+    var prev = new Date(previous);
+
+    // ms -> ns.
+    return (cur.getTime() - prev.getTime()) * 1000000;
+  }
+
+
+  function drawCpuUsageCharts(statsSamples) {
+    var perCpuUsageData = new google.visualization.DataTable();
+    perCpuUsageData.addColumn('datetime', 'Time');
+
+    var cpuTotalUsageData = new google.visualization.DataTable();
+    cpuTotalUsageData.addColumn('datetime', 'Time');
+    cpuTotalUsageData.addColumn('number', 'Usage'); 
+    
+    var addCoreColumsFlag = false;
+
+    for(var i = 1; i < statsSamples.length; i++) {
+      var prevStatsSample = statsSamples[i - 1];
+      var curStatsSample = statsSamples[i];
+
+      var dateTime = new Date(curStatsSample['preread']);
+      var intervalNs = getInterval(curStatsSample['preread'], prevStatsSample['preread']);
+
+      var prevCpuTotalUsage = prevStatsSample['cpu_stats']['cpu_usage']['total_usage'];
+      var curCpuTotalUsage = curStatsSample['cpu_stats']['cpu_usage']['total_usage'];
+
+      var prevPerCpuUsage = prevStatsSample['cpu_stats']['cpu_usage']['percpu_usage'];
+      var curPerCpuUsage = curStatsSample['cpu_stats']['cpu_usage']['percpu_usage'];
+
+      var cpuTotalUsage = (curCpuTotalUsage - prevCpuTotalUsage) / intervalNs;
+
+      var cpuTotalUsageRow = [
+        dateTime,
+        cpuTotalUsage
+      ];
+
+      cpuTotalUsageData.addRow(cpuTotalUsageRow);
+
+      var perCpuUsageRow = [dateTime];
+      for(var j = 0; j < prevPerCpuUsage.length; j++) {
+        if(!addCoreColumsFlag) {
+          perCpuUsageData.addColumn('number', 'Core ' + j);
+        }
+
+        var prevUsage = prevPerCpuUsage[j];
+        var curUsage = curPerCpuUsage[j];
+
+        perCpuUsageRow.push((curUsage - prevUsage) / intervalNs);
+        
+      }
+      addCoreColumsFlag = true;
+
+      perCpuUsageData.addRow(perCpuUsageRow);
+    }
+
+    var cpuTotalUsageChartOpts = {
+      title: 'Total Usage',
+      legend: {
+        position: 'bottom'
+      },
+      focusTarget: 'category',
+    }
+
+    var cpuTotalUsageChartElem = document.getElementById('cpu_total_usage_chart');
+    var cpuTotalUsageChart = new google.visualization.LineChart(cpuTotalUsageChartElem); 
+
+    cpuTotalUsageChart.draw(cpuTotalUsageData, cpuTotalUsageChartOpts);
+
+    var perCpuUsageChartOpts = {
+      title: 'Usage per Core',
+      //curveType: 'function',
+      legend: {
+        position: 'bottom'
+      },
+      focusTarget: 'category',
+    };
+
+    var perCpuUsageChartElem = document.getElementById('percpu_usage_chart');
+    var perCpuUsageChart = new google.visualization.LineChart(perCpuUsageChartElem);
+
+    perCpuUsageChart.draw(perCpuUsageData, perCpuUsageChartOpts);
 
   }
 
