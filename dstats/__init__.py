@@ -25,7 +25,7 @@ class StatsCollector():
         self._sleep_delay = 1
         self._web_socket_timeout = 0.1
         self._web_sockets = set()
-        self._container_web_sockets = set()
+        self._container_web_sockets = dict()
 
         self.loop = asyncio.get_event_loop()
 
@@ -166,17 +166,13 @@ class StatsCollector():
 
         return await ws.send_str(stats_json)
 
-    async def collect(self, container_id=None, ws=None):
+    async def collect(self):
 
         while True:
 
             try:
 
-                if container_id:
-                    containers = [await
-                                  self.docker.containers.get(container_id)]
-                else:
-                    containers = await self.docker.containers.list()
+                containers = await self.docker.containers.list()
 
                 if not containers:
                     await asyncio.sleep(self._sleep_delay)
@@ -192,11 +188,20 @@ class StatsCollector():
                 if not self.containers_stats:
                     break
 
-                if ws:
-                    tasks = [self._send_stats(stats, ws) for stats in self.containers_stats]
-                else:
-                    tasks = [self._send_stats(self.containers_stats, ws) for ws in
-                             self._web_sockets]
+                tasks = []
+                for stats in self.containers_stats:
+                    container_id = stats['container']['Id']
+                    web_sockets = self._container_web_sockets.get(container_id)
+                    if not web_sockets:
+                        continue
+
+                    tasks.extend([self._send_stats(stats, ws) for ws in
+                                    web_sockets])
+
+
+                tasks.extend([self._send_stats(self.containers_stats, ws) for ws in
+                             self._web_sockets])
+                print(tasks)
 
                 if not tasks:
                     await asyncio.sleep(self._sleep_delay)
@@ -226,7 +231,9 @@ class StatsCollector():
 
     async def on_shutdown(self, app):
 
-        web_sockets = self._web_sockets | self._container_web_sockets
+        web_sockets = self._web_sockets
+        for _, ws in self._container_web_sockets.items():
+            web_sockets.update(ws)
 
         tasks = [ws.close(code=WSCloseCode.GOING_AWAY, message='Server \
                           shutdown') for ws in web_sockets]
@@ -270,12 +277,10 @@ class StatsCollector():
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         log.info('WebSocket is connected')
-        self._container_web_sockets.add(ws)
 
-        collect_task = asyncio.ensure_future(self.collect(
-            container_id=container_id,
-            ws=ws
-        ))
+        if container_id not in self._container_web_sockets:
+            self._container_web_sockets[container_id] = set()
+        self._container_web_sockets[container_id].add(ws)
 
         while True:
 
@@ -286,12 +291,9 @@ class StatsCollector():
                     msg.type == WSMsgType.CLOSED or \
                     msg.tp == WSMsgType.ERROR:
 
-                collect_task.cancel()
-                await collect_task
-
                 break
 
-        self._container_web_sockets.discard(ws)
+        self._container_web_sockets[container_id].discard(ws)
         log.info('WebSocket is closed.')
 
         return ws
