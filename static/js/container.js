@@ -68,29 +68,25 @@ $(document).ready(function() {
     var data = new google.visualization.DataTable();
     data.addColumn('datetime', 'Time');
     data.addColumn('number', 'Memory Usage');
-    data.addColumn('number', 'Memory Limit');
 
     for(var i = 0; i < statsSamples.length; i++) {
       statsSample = statsSamples[i];
 
       timestamp = new Date(statsSample['preread']);
       usage = statsSample['memory_stats']['usage'];
-      limit = statsSample['memory_stats']['limit'];
 
       row = [
         timestamp,
         usage,
-        limit
       ]
 
       data.addRow(row);
     }
 
-    var ranges = data.getColumnRange(2);
+    var ranges = data.getColumnRange(1);
 
     var formatter = new byteFormatter();
     formatter.format(data,1);
-    formatter.format(data,2);
     var max = ranges.max * 1;
 
     var options = {
