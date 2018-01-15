@@ -16,7 +16,7 @@ $(document).ready(function() {
   ].join('')
 
 
-  google.charts.load('current', {'packages':['corechart', 'table']});
+  google.charts.load('current', {'packages':['corechart', 'table', 'gauge']});
 
   conn = new WebSocket(wsUri);
 
@@ -31,8 +31,7 @@ $(document).ready(function() {
     stats = JSON.parse(stats_json);
     console.log(stats)
     statsSamples.push(stats);
-    drawMemoryChart(statsSamples);
-    drawCpuUsageCharts(statsSamples);
+    drawCharts(statsSamples);
   };
 
   conn.onclose = function(e) {
@@ -62,6 +61,13 @@ $(document).ready(function() {
     };
   }
 
+  function drawCharts(statsSamples) {
+		drawOverallUsageGauge(statsSamples);
+    drawMemoryChart(statsSamples);
+    drawNetworkBytesChart(statsSamples);
+    drawBlkioChart(statsSamples);
+    drawCpuUsageCharts(statsSamples);
+  }
 
   function drawMemoryChart(statsSamples) {
 
@@ -93,6 +99,9 @@ $(document).ready(function() {
       title: 'Memory Usage',
       curveType: 'function',
       focusTarget: 'category',
+      legend: {
+        position: 'bottom'
+      },
       hAxis: {
         title: 'Time'
       },
@@ -110,8 +119,8 @@ $(document).ready(function() {
     };
 
 
-    var chart_elem = document.getElementById('memory_usage_chart');
-    var chart = new google.visualization.LineChart(chart_elem);
+    var chartElem = document.getElementById('memory_usage_chart');
+    var chart = new google.visualization.LineChart(chartElem);
 
     chart.draw(data, options);
 
@@ -203,6 +212,121 @@ $(document).ready(function() {
     perCpuUsageChart.draw(perCpuUsageData, perCpuUsageChartOpts);
 
   }
+
+  function drawNetworkBytesChart(statsSamples) {
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('datetime', 'Time');
+    data.addColumn('number', 'Received bytes');
+    data.addColumn('number', 'Transceived bytes');
+
+    for(var i = 0; i < statsSamples.length; i++) {
+      statsSample = statsSamples[i];
+
+      timestamp = new Date(statsSample['preread']);
+      receivedBytes = statsSample['network_stats']['received_bytes'];
+      transceivedBytes = statsSample['network_stats']['transceived_bytes'];
+
+      row = [
+        timestamp,
+        receivedBytes,
+        transceivedBytes
+      ];
+
+      data.addRow(row);
+    }
+
+
+    var options = {
+      title: 'Network Throughput',
+      curveType: 'function',
+      focusTarget: 'category',
+      legend: {
+        position: 'bottom'
+      },
+ 
+    };
+
+
+    var chartElem = document.getElementById('network_bytes_chart');
+    var chart = new google.visualization.LineChart(chartElem);
+
+    chart.draw(data, options);
+      
+  }
+
+  function drawBlkioChart(statsSamples) {
+    var data = new google.visualization.DataTable();
+
+    data.addColumn('datetime', 'Time');
+    data.addColumn('number', 'Read bytes');
+    data.addColumn('number', 'Wrote bytes');
+
+    for(var i = 0; i < statsSamples.length; i++) { 
+      statsSample = statsSamples[i];
+
+      timestamp = new Date(statsSample['preread']);
+      readBytes = statsSample['blkio_stats']['read_bytes'];
+      wroteBytes = statsSample['blkio_stats']['wrote_bytes'];
+
+      row = [
+        timestamp,
+        readBytes,
+        wroteBytes
+      ];
+
+      data.addRow(row);
+    }
+
+    var options = {
+      title: 'I/O Throughput',
+      curveType: 'function',
+      focusTarget: 'category',
+      legend: {
+        position: 'bottom'
+      },
+    };
+
+
+    var chartElem = document.getElementById('blkio_bytes_chart');
+    var chart = new google.visualization.LineChart(chartElem);
+
+    chart.draw(data, options);
+  }
+
+  function drawOverallUsageGauge(statsSamples) {
+
+		data = new google.visualization.DataTable();
+		data.addColumn('string', 'Label');
+		data.addColumn('number', 'Value');
+
+		curStatsSample = statsSamples[statsSamples.length - 1];
+    
+		cpuUsage = Math.round(curStatsSample['cpu_stats']['cpu_usage_perc']);
+		
+		data.addRow(['CPU', cpuUsage]);
+
+		memoryUsage = Math.round(curStatsSample['memory_stats']['perc']);
+
+		data.addRow(['Memory', memoryUsage]);
+
+		var options = {
+			height: 100,
+			redFrom: 90,
+			redTo: 100,
+			yellowFrom: 75,
+			yellowTo: 90,
+			minorTicks: 5,
+			animation: {duration: 900, easing: 'linear'}
+		};
+
+		gaugeElem = document.getElementById('overall_usage_gauge');
+		var chart =
+			new google.visualization.Gauge(gaugeElem);
+		chart.draw(data, options);
+
+  }
+   
 
 
 });
